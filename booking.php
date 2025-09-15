@@ -98,20 +98,19 @@ if ($_POST) {
                     
                     // Create booking record
                     $stmt = $pdo->prepare("
-                        INSERT INTO bookings (user_id, name, address, phone, car_license, car_engine, mechanic_id, service_id, booking_date, booking_time, total_price, notes, status) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                        INSERT INTO bookings (user_id, name, address, phone, car_license, car_engine, mechanic_id, service_id, services, booking_date, booking_time, total_price, notes, status) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
                     ");
 
                     // Use primary service (first selected service)
                     $primary_service_id = $selected_services[0];
-                    $detailed_notes = "Services: " . implode(', ', $service_names);
-                    if (!empty($notes)) {
-                        $detailed_notes .= " | Customer Notes: " . $notes;
-                    }
+                    $services_list = implode(', ', $service_names);
+                    // Only store additional notes in the notes column
+                    $customer_notes = !empty($notes) ? $notes : null;
 
                     if ($stmt->execute([
                         $_SESSION['user_id'], $name, $address, $phone, $car_license, $car_engine,
-                        $mechanic_id, $primary_service_id, $booking_date, $booking_time, $total_price, $detailed_notes
+                        $mechanic_id, $primary_service_id, $services_list, $booking_date, $booking_time, $total_price, $customer_notes
                     ])) {
                         $booking_id = $pdo->lastInsertId();
                         

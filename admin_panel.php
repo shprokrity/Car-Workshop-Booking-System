@@ -6,10 +6,87 @@ requireAdmin();
 $success = '';
 $error = '';
 
+// Temporary debug output
+error_log("Starting admin panel page load");
+
+// Fetch users list
+$stmt = $pdo->prepare("
+    SELECT id, name, email, role,
+           COALESCE(is_disabled, 0) as is_disabled
+    FROM users 
+    WHERE role != 'admin'
+    ORDER BY id DESC
+");
+
+$stmt->execute();
+$users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Debug output
+foreach ($users as $user) {
+    error_log(sprintf(
+        "User ID: %d, Name: %s, is_disabled value: [%s]",
+        $user['id'],
+        $user['name'],
+        var_export($user['is_disabled'], true)
+    ));
+}
+
+// Debug each user's disabled status
+foreach ($users as $user) {
+    error_log("User {$user['id']} - is_disabled: " . var_export($user['is_disabled'], true));
+}
+
 // To handle form submissions
 if ($_POST) {
     if (isset($_POST['action'])) {
         switch ($_POST['action']) {
+            case 'toggle_user_status':
+                $user_id = $_POST['user_id'];
+                
+                error_log("Processing toggle_user_status for user_id: " . $user_id);
+                
+                // First, get current status
+                $stmt = $pdo->prepare("SELECT id, is_disabled FROM users WHERE id = ? AND role != 'admin'");
+                $stmt->execute([$user_id]);
+                $user = $stmt->fetch();
+                
+                if ($user) {
+                    // Get current status and convert to integer
+                    $current_status = (int)$user['is_disabled'];
+                    $new_status = $current_status ? 0 : 1;  // Toggle between 0 and 1
+                    
+                    error_log(sprintf(
+                        "Toggling user %d - Current status: [%d], New status: [%d]",
+                        $user_id,
+                        $current_status,
+                        $new_status
+                    ));
+                    
+                    // Update with explicit integer value
+                    $stmt = $pdo->prepare("UPDATE users SET is_disabled = ? WHERE id = ? AND role != 'admin'");
+                    
+                    if ($stmt->execute([$new_status, $user_id])) {
+                        // Verify the update
+                        $verify = $pdo->prepare("SELECT is_disabled FROM users WHERE id = ?");
+                        $verify->execute([$user_id]);
+                        $updated = $verify->fetch();
+                        
+                        error_log(sprintf(
+                            "Update verification - User %d new status: [%s]",
+                            $user_id,
+                            var_export($updated['is_disabled'], true)
+                        ));
+                        
+                        $success = 'User ' . ($new_status ? 'disabled' : 'enabled') . ' successfully';
+                    } else {
+                        $error = 'Failed to update user status';
+                        error_log("Database update failed for user " . $user_id);
+                    }
+                } else {
+                    $error = 'User not found or cannot be disabled';
+                    error_log("User not found or is admin: " . $user_id);
+                }
+                break;
             case 'update_booking':
                 //$name = $booking['name'];
                 //$address = $booking['address'];
@@ -110,6 +187,31 @@ if ($_POST) {
                 }
                 break;
                 
+            case 'edit_mechanic':
+                $mechanic_id = $_POST['mechanic_id'];
+                $name = trim($_POST['name']);
+                $email = trim($_POST['email']);
+                $phone = trim($_POST['phone']);
+                $specialty = trim($_POST['specialty']);
+                
+                if (empty($name) || empty($email) || empty($phone) || empty($specialty)) {
+                    $error = 'All fields are required.';
+                    break;
+                }
+                
+                $stmt = $pdo->prepare("
+                    UPDATE mechanics 
+                    SET name = ?, email = ?, phone = ?, specialty = ? 
+                    WHERE mechanic_id = ?
+                ");
+                
+                if ($stmt->execute([$name, $email, $phone, $specialty, $mechanic_id])) {
+                    $success = 'Mechanic information updated successfully.';
+                } else {
+                    $error = 'Failed to update mechanic information.';
+                }
+                break;
+
             case 'toggle_mechanic':
                 $mechanic_id = $_POST['mechanic_id'];
                 $new_status = $_POST['new_status'];
@@ -127,11 +229,10 @@ if ($_POST) {
 
 // bookings with details
 $stmt = $pdo->query("
-    SELECT b.*, u.username, u.email, m.name as mechanic_name, rs.service_name, rs.price
+    SELECT b.*, u.username, u.email, m.name as mechanic_name
     FROM bookings b 
     JOIN users u ON b.user_id = u.id 
     JOIN mechanics m ON b.mechanic_id = m.mechanic_id 
-    JOIN repair_services rs ON b.service_id = rs.id 
     ORDER BY b.created_at DESC
 ");
 $bookings = $stmt->fetchAll();
@@ -246,6 +347,12 @@ $services = $stmt->fetchAll();
         .btn-sm {
             padding: 0.4rem 0.8rem;
             font-size: 0.8rem;
+            margin: 0 0.2rem;
+        }
+
+        form[method="POST"] {
+            display: inline-block;
+            margin: 0 0.2rem;
         }
         
         .btn:hover {
@@ -512,6 +619,17 @@ $services = $stmt->fetchAll();
             .table th, .table td {
                 padding: 0.5rem;
             }
+            
+            .table td em {
+                color: rgba(255,255,255,0.5);
+                font-style: italic;
+            }
+            
+            .table td:nth-child(12) { /* Notes column */
+                max-width: 200px;
+                white-space: pre-wrap;
+                word-wrap: break-word;
+            }
         }
     </style>
 </head>
@@ -576,12 +694,12 @@ $services = $stmt->fetchAll();
                                 <th>Phone</th>
                                 <th>Car License</th>
                                 <th>Car Engine</th>
-                                <th>Customer</th>
                                 <th>Service</th>
                                 <th>Mechanic</th>
                                 <th>Date & Time</th>
                                 <th>Status</th>
                                 <th>Price</th>
+                                <th>Notes</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -594,12 +712,12 @@ $services = $stmt->fetchAll();
                                     <td><?php echo htmlspecialchars($booking['phone']); ?></td>
                                     <td><?php echo htmlspecialchars($booking['car_license']); ?></td>
                                     <td><?php echo htmlspecialchars($booking['car_engine']); ?></td>
-                                    <td><?php echo htmlspecialchars($booking['username']); ?></td>
-                                    <td><?php echo htmlspecialchars($booking['service_name']); ?></td>
+                                    <td><?php echo htmlspecialchars($booking['services']); ?></td>
                                     <td><?php echo htmlspecialchars($booking['mechanic_name']); ?></td>
                                     <td><?php echo date('M j, Y g:i A', strtotime($booking['booking_date'] . ' ' . $booking['booking_time'])); ?></td>
                                     <td><span class="status <?php echo $booking['status']; ?>"><?php echo ucfirst($booking['status']); ?></span></td>
-                                    <td>BDT<?php echo number_format($booking['price'], 2); ?></td>
+                                    <td>BDT<?php echo number_format($booking['total_price'], 2); ?></td>
+                                    <td><?php echo !empty($booking['notes']) ? htmlspecialchars($booking['notes']) : '<em>No additional notes</em>'; ?></td>
                                     <td>
                                         <form method="POST" class="form-inline">
                                             <input type="hidden" name="action" value="update_booking">
@@ -670,9 +788,7 @@ $services = $stmt->fetchAll();
                                         <small><?php echo htmlspecialchars($mechanic['phone']); ?></small>
                                     </td>
                                     <td>
-                                        <span class="workload <?php echo $workload_class; ?>">
-                                            <?php echo $mechanic['current_orders']; ?>/<?php echo $mechanic['max_orders']; ?> active jobs
-                                        </span>
+                                        <a href="mechanic_details.php?id=<?php echo $mechanic['mechanic_id']; ?>" class="btn btn-info btn-sm">View Schedule</a>
                                     </td>
                                     <td><span class="status <?php echo $mechanic['status']; ?>"><?php echo ucfirst($mechanic['status']); ?></span></td>
                                     <td>
@@ -684,6 +800,15 @@ $services = $stmt->fetchAll();
                                                 <?php echo ($mechanic['status'] === 'available') ? 'Disable' : 'Enable'; ?>
                                             </button>
                                         </form>
+                                        <button onclick="openEditMechanicModal(<?php 
+                                            echo htmlspecialchars(json_encode([
+                                                'id' => $mechanic['mechanic_id'],
+                                                'name' => $mechanic['name'],
+                                                'email' => $mechanic['email'],
+                                                'phone' => $mechanic['phone'],
+                                                'specialty' => $mechanic['specialty']
+                                            ]));
+                                        ?>)" class="btn btn-primary btn-sm" style="margin-left: 5px;">Edit</button>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -739,10 +864,215 @@ $services = $stmt->fetchAll();
                     </div>
                 </div>
             </div>
+
+            <!-- Users Section -->
+            <div class="section">
+                <h2>User Management</h2>
+                <div class="section-content">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($users as $user): ?>
+                                <?php 
+                                    $is_disabled = (bool)$user['is_disabled'];
+                                ?>
+                                <tr class="<?php echo $is_disabled ? 'disabled-user' : ''; ?>">
+                                    <td><?php echo htmlspecialchars($user['id']); ?></td>
+                                    <td><?php echo htmlspecialchars($user['name']); ?></td>
+                                    <td><?php echo htmlspecialchars($user['email']); ?></td>
+                                    <td><?php echo ucfirst($user['role']); ?></td>
+                                    <td>
+                                        <span class="status <?php echo $is_disabled ? 'cancelled' : 'confirmed'; ?>">
+                                            <?php echo $is_disabled ? 'Disabled' : 'Active'; ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <a href="user_profile.php?id=<?php echo $user['id']; ?>" 
+                                           class="btn btn-info btn-sm">
+                                            View Profile
+                                        </a>
+                                        <form method="POST" style="display: inline;">
+                                            <input type="hidden" name="action" value="toggle_user_status">
+                                            <input type="hidden" name="user_id" value="<?php echo $user['id']; ?>">
+                                            <button type="submit" 
+                                                    onclick="return confirm('Are you sure you want to <?php echo $is_disabled ? 'enable' : 'disable'; ?> this user?');"
+                                                    class="btn <?php echo $is_disabled ? 'btn-success' : 'btn-danger'; ?> btn-sm">
+                                                <?php echo $is_disabled ? 'Enable' : 'Disable'; ?>
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- User Profile Modal -->
+    <div id="userProfileModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeUserProfileModal()">&times;</span>
+            <h3>User Profile</h3>
+            <div class="user-profile-details">
+                <div class="profile-row">
+                    <strong>Name:</strong>
+                    <span id="modal-name"></span>
+                </div>
+                <div class="profile-row">
+                    <strong>Email:</strong>
+                    <span id="modal-email"></span>
+                </div>
+                <div class="profile-row">
+                    <strong>Role:</strong>
+                    <span id="modal-role"></span>
+                </div>
+                <div class="profile-row">
+                    <strong>Status:</strong>
+                    <span id="modal-status"></span>
+                </div>
+            </div>
+            <div class="modal-buttons">
+                <button onclick="closeUserProfileModal()" class="btn btn-primary">Close</button>
+            </div>
         </div>
     </div>
 
+    <!-- Edit Mechanic Modal -->
+    <div id="editMechanicModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditMechanicModal()">&times;</span>
+            <h3>Edit Mechanic Details</h3>
+            <form method="POST" class="edit-mechanic-form">
+                <input type="hidden" name="action" value="edit_mechanic">
+                <input type="hidden" name="mechanic_id" id="edit_mechanic_id">
+                
+                <div class="form-group">
+                    <label for="edit_name">Name:</label>
+                    <input type="text" id="edit_name" name="name" required class="form-control">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_email">Email:</label>
+                    <input type="email" id="edit_email" name="email" required class="form-control">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_phone">Phone:</label>
+                    <input type="text" id="edit_phone" name="phone" required class="form-control">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_specialty">Specialty:</label>
+                    <input type="text" id="edit_specialty" name="specialty" required class="form-control">
+                </div>
+                
+                <div class="modal-buttons">
+                    <button type="button" onclick="closeEditMechanicModal()" class="btn btn-secondary">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+        }
+        
+        .modal-content {
+            background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(255,255,255,0.85));
+            margin: 10% auto;
+            padding: 2rem;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 500px;
+            position: relative;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        
+        .close {
+            position: absolute;
+            right: 20px;
+            top: 10px;
+            font-size: 28px;
+            font-weight: bold;
+            color: #666;
+            cursor: pointer;
+        }
+        
+        .close:hover {
+            color: #333;
+        }
+        
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #333;
+            font-weight: 500;
+        }
+        
+        .form-control {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+        
+        .modal-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+    </style>
+
     <script>
+        function openEditMechanicModal(mechanic) {
+            document.getElementById('edit_mechanic_id').value = mechanic.id;
+            document.getElementById('edit_name').value = mechanic.name;
+            document.getElementById('edit_email').value = mechanic.email;
+            document.getElementById('edit_phone').value = mechanic.phone;
+            document.getElementById('edit_specialty').value = mechanic.specialty;
+            document.getElementById('editMechanicModal').style.display = 'block';
+        }
+        
+        function closeEditMechanicModal() {
+            document.getElementById('editMechanicModal').style.display = 'none';
+        }
+        
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('editMechanicModal');
+            if (event.target == modal) {
+                closeEditMechanicModal();
+            }
+        }
         // Real-time updates simulation
         function updateTimestamps() {
             const now = new Date();
@@ -835,6 +1165,91 @@ $services = $stmt->fetchAll();
                 }
             });
         });
+
+        // User Profile Modal Functions
+        function openUserProfileModal(user) {
+            document.getElementById('modal-name').textContent = user.name;
+            document.getElementById('modal-email').textContent = user.email;
+            document.getElementById('modal-role').textContent = user.role;
+            document.getElementById('modal-status').textContent = user.is_disabled ? 'Disabled' : 'Active';
+            document.getElementById('userProfileModal').style.display = 'block';
+        }
+
+        function closeUserProfileModal() {
+            document.getElementById('userProfileModal').style.display = 'none';
+        }
+
+
+
+        // Update window click handler to include user profile modal
+        window.onclick = function(event) {
+            const editModal = document.getElementById('editMechanicModal');
+            const userModal = document.getElementById('userProfileModal');
+            if (event.target == editModal) {
+                closeEditMechanicModal();
+            }
+            if (event.target == userModal) {
+                closeUserProfileModal();
+            }
+        }
     </script>
+
+    <style>
+        /* User List Section Styles */
+        .user-list-section {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            margin-top: 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .user-list-section h2 {
+            color: #333;
+            margin-bottom: 1.5rem;
+        }
+
+        .disabled-user {
+            background-color: #f8f9fa;
+        }
+
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .status-badge.active {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .status-badge.disabled {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        /* User Profile Modal Styles */
+        .user-profile-details {
+            margin-top: 1.5rem;
+        }
+
+        .profile-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .profile-row:last-child {
+            border-bottom: none;
+        }
+
+        .profile-row strong {
+            color: #555;
+            min-width: 100px;
+        }
+    </style>
 </body>
 </html>

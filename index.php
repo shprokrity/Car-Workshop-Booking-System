@@ -418,6 +418,7 @@ $service_icons = [
                         <?php if (isAdmin()): ?>
                             <a href="admin_panel.php" class="btn btn-secondary">Admin Panel</a>
                         <?php else: ?>
+                            <a href="mechanic_list.php" class="btn btn-secondary">Mechanics</a>
                             <a href="user_panel.php" class="btn btn-secondary">My Bookings</a>
                         <?php endif; ?>
                         <a href="logout.php" class="btn btn-primary">Logout</a>
@@ -436,7 +437,7 @@ $service_icons = [
             <p>Expert mechanics, premium service, competitive prices</p>
             <?php if (!isLoggedIn()): ?>
                 <a href="register.php" class="btn btn-primary btn-large">Get Started Today</a>
-            <?php else: ?>
+            <?php elseif (isset($_SESSION['role']) && $_SESSION['role'] !== 'admin'): ?>
                 <a href="booking.php" class="btn btn-primary btn-large">Book a Service</a>
             <?php endif; ?>
         </div>
@@ -468,10 +469,10 @@ $service_icons = [
     <section class="cta">
         <h2>Ready to Book Your Service?</h2>
         <p>Choose from our expert mechanics and schedule your repair today</p>
-        <?php if (isLoggedIn()): ?>
-            <a href="booking.php" class="btn btn-primary btn-large">Book Now</a>
-        <?php else: ?>
+        <?php if (!isLoggedIn()): ?>
             <a href="register.php" class="btn btn-primary btn-large">Register to Book</a>
+        <?php elseif (isset($_SESSION['role']) && $_SESSION['role'] !== 'admin'): ?>
+            <a href="booking.php" class="btn btn-primary btn-large">Book Now</a>
         <?php endif; ?>
     </section>
 
@@ -497,7 +498,11 @@ $service_icons = [
         // Show welcome notification for logged in users
         <?php if (isLoggedIn()): ?>
             document.addEventListener('DOMContentLoaded', function() {
-                showNotification('Welcome back, <?php echo htmlspecialchars($_SESSION['username']); ?>! Ready to book your next service?', 'success');
+                <?php if (isset($_SESSION['role']) && $_SESSION['role'] !== 'admin'): ?>
+                    showNotification('Welcome back, <?php echo htmlspecialchars($_SESSION['username']); ?>! Ready to book your next service?', 'success');
+                <?php else: ?>
+                    showNotification('Welcome back, <?php echo htmlspecialchars($_SESSION['username']); ?>!', 'success');
+                <?php endif; ?>
             });
         <?php endif; ?>
 

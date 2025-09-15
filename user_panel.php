@@ -6,7 +6,30 @@ $error = '';
 $success = '';
 
 // Handle booking cancellation
-if ($_POST && isset($_POST['action']) && $_POST['action'] === 'cancel_booking') {
+if ($_POST && isset($_POST['action'])) {
+    if ($_POST['action'] === 'edit_profile') {
+        $name = trim($_POST['name']);
+        $email = trim($_POST['email']);
+        $phone = trim($_POST['phone']);
+        $address = trim($_POST['address']);
+
+        if (empty($name) || empty($email) || empty($phone) || empty($address)) {
+            $error = 'All fields are required.';
+        } else {
+            $stmt = $pdo->prepare("
+                UPDATE users 
+                SET name = ?, email = ?, phone = ?, address = ? 
+                WHERE id = ?
+            ");
+            
+            if ($stmt->execute([$name, $email, $phone, $address, $_SESSION['user_id']])) {
+                $success = 'Profile updated successfully!';
+            } else {
+                $error = 'Failed to update profile. Please try again.';
+            }
+        }
+    }
+    if ($_POST['action'] === 'cancel_booking') {
     $booking_id = $_POST['booking_id'];
     
     // booking belongs to user and is cancellable
@@ -45,7 +68,7 @@ if ($_POST && isset($_POST['action']) && $_POST['action'] === 'cancel_booking') 
                     <p>Your booking #{$booking_id} has been successfully cancelled.</p>
                     <h3>Cancelled Booking Details:</h3>
                     <ul>
-                        <li><strong>Service:</strong> {$booking['service_name']}</li>
+                        <li><strong>Services:</strong> {$booking['services']}</li>
                         <li><strong>Mechanic:</strong> {$booking['mechanic_name']}</li>
                         <li><strong>Date:</strong> " . date('M j, Y', strtotime($booking['booking_date'])) . "</li>
                         <li><strong>Time:</strong> " . date('g:i A', strtotime($booking['booking_time'])) . "</li>
@@ -63,14 +86,23 @@ if ($_POST && isset($_POST['action']) && $_POST['action'] === 'cancel_booking') 
     } else {
         $error = 'Booking not found or cannot be cancelled.';
     }
+  }
 }
+
+// Get user's profile details
+$stmt = $pdo->prepare("
+    SELECT id, username, email, name, phone, address
+    FROM users 
+    WHERE id = ?
+");
+$stmt->execute([$_SESSION['user_id']]);
+$user_profile = $stmt->fetch();
 
 // Get user's bookings
 $stmt = $pdo->prepare("
-    SELECT b.*, m.name as mechanic_name, rs.service_name, rs.price 
+    SELECT b.*, m.name as mechanic_name 
     FROM bookings b 
     JOIN mechanics m ON b.mechanic_id = m.mechanic_id 
-    JOIN repair_services rs ON b.service_id = rs.id 
     WHERE b.user_id = ? 
     ORDER BY b.created_at DESC
 ");
@@ -262,6 +294,51 @@ $bookings = $stmt->fetchAll();
             color: white;
         }
         
+        .profile-section {
+            background: linear-gradient(135deg, rgba(255,255,255,0.25), rgba(255,255,255,0.1));
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255,255,255,0.2);
+            padding: 2.5rem;
+            border-radius: 20px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+            margin-bottom: 2rem;
+            color: white;
+        }
+
+        .profile-section h2 {
+            margin-bottom: 2rem;
+            text-align: center;
+            font-size: 2rem;
+            color: #feca57;
+        }
+
+        .profile-details {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .profile-detail {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .profile-detail .detail-label {
+            font-weight: bold;
+            color: #feca57;
+        }
+
+        .profile-detail .detail-value {
+            text-align: right;
+        }
+
+        .profile-details .btn {
+            margin-top: 2rem;
+            width: 100%;
+        }
+
         .bookings-section h2 {
             margin-bottom: 2rem;
             text-align: center;
@@ -489,6 +566,34 @@ $bookings = $stmt->fetchAll();
             <a href="booking.php" class="btn btn-book">Book New Service</a>
         </div>
 
+        <!-- User Profile Section -->
+        <div class="profile-section">
+            <h2>Profile Information</h2>
+            <div class="profile-details">
+                <div class="profile-detail">
+                    <span class="detail-label">Username:</span>
+                    <span class="detail-value"><?php echo htmlspecialchars($user_profile['username']); ?></span>
+                </div>
+                <div class="profile-detail">
+                    <span class="detail-label">Name:</span>
+                    <span class="detail-value"><?php echo htmlspecialchars($user_profile['name']); ?></span>
+                </div>
+                <div class="profile-detail">
+                    <span class="detail-label">Email:</span>
+                    <span class="detail-value"><?php echo htmlspecialchars($user_profile['email']); ?></span>
+                </div>
+                <div class="profile-detail">
+                    <span class="detail-label">Phone:</span>
+                    <span class="detail-value"><?php echo htmlspecialchars($user_profile['phone']); ?></span>
+                </div>
+                <div class="profile-detail">
+                    <span class="detail-label">Address:</span>
+                    <span class="detail-value"><?php echo htmlspecialchars($user_profile['address']); ?></span>
+                </div>
+                <button onclick="openEditProfileModal()" class="btn btn-primary">Edit Profile</button>
+            </div>
+        </div>
+
         <div class="dashboard-cards">
             <div class="card">
                 <div class="card-icon">📅</div>
@@ -559,8 +664,8 @@ $bookings = $stmt->fetchAll();
 
                         <div class="booking-details">
                             <div class="detail-item">
-                                <span class="detail-label">Service</span>
-                                <span class="detail-value"><?php echo htmlspecialchars($booking['service_name']); ?></span>
+                                <span class="detail-label">Services</span>
+                                <span class="detail-value"><?php echo htmlspecialchars($booking['services']); ?></span>
                             </div>
                             <div class="detail-item">
                                 <span class="detail-label">Mechanic</span>
@@ -578,15 +683,17 @@ $bookings = $stmt->fetchAll();
                                 <span class="detail-label">Booked On</span>
                                 <span class="detail-value"><?php echo date('M j, Y g:i A', strtotime($booking['created_at'])); ?></span>
                             </div>
+                            <?php if (!empty($booking['notes'])): ?>
                             <div class="detail-item">
-                                <span class="detail-label">Services & Notes</span>
+                                <span class="detail-label">Additional Notes</span>
                                 <span class="detail-value"><?php echo htmlspecialchars($booking['notes']); ?></span>
                             </div>
+                            <?php endif; ?>
                         </div>
                         
                         <?php if ($can_cancel): ?>
                             <div class="booking-actions">
-                                <button onclick="openCancelModal(<?php echo $booking['id']; ?>, '<?php echo htmlspecialchars($booking['service_name']); ?>', '<?php echo date('M j, Y g:i A', strtotime($booking['booking_date'] . ' ' . $booking['booking_time'])); ?>')" class="btn btn-danger">Cancel Booking</button>
+                                <button onclick="openCancelModal(<?php echo $booking['id']; ?>, '<?php echo htmlspecialchars($booking['services']); ?>', '<?php echo date('M j, Y g:i A', strtotime($booking['booking_date'] . ' ' . $booking['booking_time'])); ?>')" class="btn btn-danger">Cancel Booking</button>
                                 <?php if ($hours_until_booking < 48): ?>
                                     <small style="color: rgba(255,255,255,0.7); margin-top: 0.5rem;">
                                         ⚠️ <?php echo round($hours_until_booking); ?> hours until appointment
@@ -603,6 +710,78 @@ $bookings = $stmt->fetchAll();
                     </div>
                 <?php endforeach; ?>
             <?php endif; ?>
+        </div>
+
+        <!-- User Profile Section -->
+        <div class="section profile-section">
+            <div class="section-header">
+                <h2>👤 My Profile</h2>
+            </div>
+            <div class="profile-content">
+                <div class="profile-details">
+                    <div class="detail-row">
+                        <span class="detail-label">User ID:</span>
+                        <span class="detail-value">#<?php echo htmlspecialchars($user_profile['id']); ?></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Username:</span>
+                        <span class="detail-value"><?php echo htmlspecialchars($user_profile['username']); ?></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Email:</span>
+                        <span class="detail-value"><?php echo htmlspecialchars($user_profile['email']); ?></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Full Name:</span>
+                        <span class="detail-value"><?php echo htmlspecialchars($user_profile['name'] ?? 'Not set'); ?></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Phone:</span>
+                        <span class="detail-value"><?php echo htmlspecialchars($user_profile['phone'] ?? 'Not set'); ?></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Address:</span>
+                        <span class="detail-value"><?php echo htmlspecialchars($user_profile['address'] ?? 'Not set'); ?></span>
+                    </div>
+                    <button onclick="openEditProfileModal()" class="btn btn-primary">Edit Profile</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Profile Modal -->
+    <div id="editProfileModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditProfileModal()">&times;</span>
+            <h3>Edit Profile</h3>
+            <form method="POST" class="edit-profile-form">
+                <input type="hidden" name="action" value="edit_profile">
+                
+                <div class="form-group">
+                    <label for="edit_full_name">Full Name:</label>
+                    <input type="text" id="edit_full_name" name="name" value="<?php echo htmlspecialchars($user_profile['name'] ?? ''); ?>" class="form-control" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_email">Email:</label>
+                    <input type="email" id="edit_email" name="email" value="<?php echo htmlspecialchars($user_profile['email']); ?>" class="form-control" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_phone">Phone:</label>
+                    <input type="text" id="edit_phone" name="phone" value="<?php echo htmlspecialchars($user_profile['phone'] ?? ''); ?>" class="form-control" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_address">Address:</label>
+                    <textarea id="edit_address" name="address" class="form-control" required><?php echo htmlspecialchars($user_profile['address'] ?? ''); ?></textarea>
+                </div>
+                
+                <div class="modal-buttons">
+                    <button type="button" onclick="closeEditProfileModal()" class="btn btn-secondary">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -626,8 +805,10 @@ $bookings = $stmt->fetchAll();
     <script>
         function openCancelModal(bookingId, serviceName, dateTime) {
             document.getElementById('cancelBookingId').value = bookingId;
-            document.getElementById('cancelMessage').textContent = 
-                `Are you sure you want to cancel your ${serviceName} appointment scheduled for ${dateTime}? This action cannot be undone.`;
+            document.getElementById('cancelMessage').innerHTML = 
+                `Are you sure you want to cancel your appointment scheduled for ${dateTime}?<br><br>` +
+                `<strong>Booked Services:</strong><br>${serviceName}<br><br>` +
+                `This action cannot be undone.`;
             document.getElementById('cancelModal').style.display = 'block';
         }
 
@@ -656,6 +837,26 @@ $bookings = $stmt->fetchAll();
                 }, 5000);
             });
         });
+        // Edit Profile Modal Functions
+        function openEditProfileModal() {
+            document.getElementById('editProfileModal').style.display = 'block';
+        }
+
+        function closeEditProfileModal() {
+            document.getElementById('editProfileModal').style.display = 'none';
+        }
+
+        // Close edit profile modal when clicking outside
+        window.onclick = function(event) {
+            const cancelModal = document.getElementById('cancelModal');
+            const editProfileModal = document.getElementById('editProfileModal');
+            if (event.target == cancelModal) {
+                closeCancelModal();
+            }
+            if (event.target == editProfileModal) {
+                closeEditProfileModal();
+            }
+        }
     </script>
 </body>
 </html>
